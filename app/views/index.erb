@@ -15,10 +15,21 @@
   }
   .code-reader {
     background-color: #161b22;
+    color: white;
+  }
+  .list-group-item.active {
+    background-color: #0d6efd !important;
+  }
+  .has-doc{
+    background-color: #ffc107;
+  }
+  .doc-edit-box {
+    width: 100%;
+    height: 100%
   }
 </style>
 <h1 class="mt-4">Структура проєкту</h1>
-<div class="row">
+<div class="row align-items-center">
   <div class="col-4">
     <div class="row">
       <div class="col-6">
@@ -29,13 +40,31 @@
       </div>
     </div>
   </div>
-  <div class="col-8"><button class="my-3 w-100 btn btn-danger edit-doc d-none">Генерувати</button></div>
+  <div class="col-8">
+    <div class="row align-items-center">
+      <div class="col-9">
+        <div class="progress d-none" role="progressbar" aria-label="Animated striped example" aria-valuenow="75" aria-valuemin="0" aria-valuemax="100">
+          <div class="progress-bar progress-bar-striped progress-bar-animated"><span class="file-counter"></span></div>
+        </div>
+      </div>
+      <div class="col-3">
+        <button class="my-3 w-100 btn btn-info edit-doc d-none">Реадугвати</button>
+        <button class="my-3 w-100 btn btn-info save-edit-doc d-none" type="submit" form="edit-doc-form">Зберегти</button>
+      </div>
+    </div>
+  </div>
 </div>
 <div class="row min-vh-100">
   <div class="col-4">
       <%= @directory_structure %>
   </div>
   <div class="col-8 py-3 rounded code-reader">
+    <form method="POST" role="save" action="/edit_doc" id="edit-doc-form" class="d-none doc-edit-box">
+      <input type="hidden" value="" name="doc_file_path">
+      <input type="hidden" value="" name="code_file_path">
+      <textarea id="edit-doc-box" class="code-reader doc-edit-box" name="doc">
+      </textarea>
+    </form>
     <zero-md>
       <script type="text/markdown" id='file-reader'>
         # **This** is my [markdown](https://example.com)
@@ -52,6 +81,12 @@
     const selectFolder = document.querySelectorAll('.add-folder');
     const selectAllButton = document.querySelector('.select-all');
     const generateDocBtn = document.querySelector('.generate-doc');
+    const websocket = new WebSocket('ws://localhost:4567/websocket');
+    const editDocButton = document.querySelector('.edit-doc');
+    const saveDocButton = document.querySelector('.save-edit-doc');
+    const docReder = document.getElementById('file-reader');
+    const docEditBox = document.getElementById('edit-doc-box');
+    const docEditForm = document.getElementById('edit-doc-form');
 
     folders.forEach(folder => {
       folder.addEventListener('click', e => {
@@ -73,7 +108,7 @@
         if(folder.parentNode.classList.contains('active')) {
           folder.parentNode.classList.remove('active');
           folder.parentNode.querySelectorAll('.file, .folder').forEach(c => c.classList.remove('active'))
-        }else{
+        } else {
           folder.parentNode.classList.add('active');
           folder.parentNode.querySelectorAll('.file, .folder').forEach(c => c.classList.add('active'))
         }
@@ -94,11 +129,10 @@
           return;
         }
         filePath = e.target.dataset.filePath
-        fetch('/get_documentation?file_path='+filePath)
+        fetch('/get_documentation?code_file_path='+filePath)
           .then(response => response.json())
           .then(data => {
-              document.getElementById('file-reader').innerHTML = data['file'];
-              // e.target.classList.add('bg-secondary');
+            readDoc(data['doc'], data['doc_file_path'], data['code_file_path'])
             });
       });
     });
@@ -111,9 +145,61 @@
       }
     }
 
+    function readDoc(doc, doc_file_path, code_file_path) {
+      if(doc === null || doc.length === undefined){
+        if(!editDocButton.classList.contains('d-none')) {
+          editDocButton.classList.add('d-none');
+          editDocButton.dataset.file_path = '';
+        }
+        docReder.innerHTML = "# Документація відсутянн.";
+        docEditBox.innerHTML = '';
+      } else {
+        if(editDocButton.classList.contains('d-none')) {
+          editDocButton.classList.remove('d-none');
+        }
+        docEditForm.querySelector('[name="doc_file_path"]').value = doc_file_path;
+        docEditForm.querySelector('[name="code_file_path"]').value = code_file_path;
+        editDocButton.classList.remove('d-none')
+        docReder.innerHTML = doc;
+        docEditBox.innerHTML = doc;
+      }
+    }
+
+    <% if @hash %>
+      let file = new Object(<%= @hash %>);
+      readDoc(file['doc'], file['doc_file_path'], file['code_file_path']);
+    <% end %>
+
     generateDocBtn.addEventListener('click', e => {
       selectFilesPath = Array.from(document.querySelectorAll('.file.active')).map(e => e.dataset.filePath);
+      let progress = document.querySelector('.progress');
+      let progressBar = document.querySelector('.progress-bar');
+      progress.classList.remove('d-none');
+
+      websocket.onmessage = e => {
+        let { total, counter } = JSON.parse(e.data);
+        let procent = (counter * 100) / total;
+
+        if(total === counter){
+          document.querySelector('.file-counter').innerHTML = counter + '/' + total;
+          progressBar.style.width = procent.toString() + '%';
+          setTimeout(() => {
+            progress.classList.add('d-none');
+          }, 2000)
+        } else {
+          progressBar.style.width = procent.toString()+ '%';
+          document.querySelector('.file-counter').innerHTML = counter + '/' + total;
+        }
+      };
+
       fetch('/generate_doc', { headers: { "Content-Type": "application/json" }, method: 'POST', body: JSON.stringify(selectFilesPath)});
+    });
+
+    editDocButton.addEventListener('click', e => {
+      docEditForm.classList.remove('d-none');
+      docReder.parentNode.classList.add('d-none')
+      e.target.classList.add('d-none');
+      saveDocButton.classList.remove('d-none');
     });
   });
 
